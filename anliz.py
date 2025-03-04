@@ -12,7 +12,6 @@ mixer.init()
 # Шлях до звукового файлу
 SOUND_FILE = "cash.mp3"
 
-
 # Функція для відтворення звуку
 def play_sound():
     if sound_enabled.get():
@@ -22,7 +21,6 @@ def play_sound():
         else:
             print("Файл звуку не знайдено!")
 
-
 # Функція для отримання даних з біржі
 def get_data(symbol, timeframe='1h', limit=100):
     exchange = ccxt.binance()  # Використовуємо Binance для отримання даних
@@ -31,20 +29,55 @@ def get_data(symbol, timeframe='1h', limit=100):
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     return df
 
-
 # Функція для розрахунку середнього ковзного
 def calculate_moving_average(df, window=20):
     df['MA'] = df['close'].rolling(window=window).mean()
     return df
 
+# Функція для розрахунку RSI
+def calculate_rsi(df, window=14):
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    return df
 
-# Функція для прийняття рішення
+# Функція для розрахунку MACD
+def calculate_macd(df, short_window=12, long_window=26, signal_window=9):
+    df['EMA_short'] = df['close'].ewm(span=short_window, adjust=False).mean()
+    df['EMA_long'] = df['close'].ewm(span=long_window, adjust=False).mean()
+    df['MACD'] = df['EMA_short'] - df['EMA_long']
+    df['Signal'] = df['MACD'].ewm(span=signal_window, adjust=False).mean()
+    return df
+
+# Функція для прийняття рішення на основі комбінацій
 def make_decision(df):
-    if df['close'].iloc[-1] > df['MA'].iloc[-1]:
-        return "Купувати"
-    else:
-        return "Продавати"
+    decisions = []
 
+    # Комбінація 1: MA та RSI
+    if df['close'].iloc[-1] > df['MA'].iloc[-1] and df['RSI'].iloc[-1] < 30:
+        decisions.append("Купувати (MA + RSI)")
+    elif df['close'].iloc[-1] < df['MA'].iloc[-1] and df['RSI'].iloc[-1] > 70:
+        decisions.append("Продавати (MA + RSI)")
+
+    # Комбінація 2: MACD перетинає Signal знизу вгору
+    if df['MACD'].iloc[-1] > df['Signal'].iloc[-1] and df['MACD'].iloc[-2] < df['Signal'].iloc[-2]:
+        decisions.append("Купувати (MACD crossover)")
+
+    # Комбінація 3: MACD перетинає Signal зверху вниз
+    if df['MACD'].iloc[-1] < df['Signal'].iloc[-1] and df['MACD'].iloc[-2] > df['Signal'].iloc[-2]:
+        decisions.append("Продавати (MACD crossover)")
+
+    # Комбінація 4: Висока волатильність (наприклад, зміна ціни > 2%)
+    price_change = (df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2] * 100
+    if abs(price_change) > 2:
+        decisions.append(f"Увага! Висока волатильність ({price_change:.2f}%)")
+
+    # Якщо рішень немає, повертаємо "Утримувати"
+    if not decisions:
+        return "Утримувати"
+    return ", ".join(decisions)
 
 # Основна функція для оновлення даних
 def update_data():
@@ -54,28 +87,29 @@ def update_data():
 
     data = get_data(symbol, timeframe, limit)
     data = calculate_moving_average(data)
+    data = calculate_rsi(data)
+    data = calculate_macd(data)
     decision = make_decision(data)
 
     last_price_label.configure(text=f"Остання ціна: {data['close'].iloc[-1]}")
     moving_average_label.configure(text=f"Середній ковзний: {data['MA'].iloc[-1]}")
+    rsi_label.configure(text=f"RSI: {data['RSI'].iloc[-1]}")
+    macd_label.configure(text=f"MACD: {data['MACD'].iloc[-1]:.2f}, Signal: {data['Signal'].iloc[-1]:.2f}")
     decision_label.configure(text=f"Рішення: {decision}")
 
-    # Відтворення звуку, якщо рішення "Продавати"
-    if decision == "Продавати":
+    # Відтворення звуку, якщо є рішення "Продавати"
+    if "Продавати" in decision:
         play_sound()
 
     # Оновлення даних кожну годину
     root.after(3600000, update_data)
 
-
 # Функція для зміни теми
 def change_theme(theme):
     ctk.set_appearance_mode(theme)
 
-
 # Функція для зміни мови
 def change_language(lang):
-    # Словник для перекладів
     translations = {
         "Українська": {
             "symbol_label": "Виберіть актив:",
@@ -84,6 +118,8 @@ def change_language(lang):
             "update_button": "Оновити дані",
             "last_price_label": "Остання ціна: -",
             "moving_average_label": "Середній ковзний: -",
+            "rsi_label": "RSI: -",
+            "macd_label": "MACD: -, Signal: -",
             "decision_label": "Рішення: -",
             "sound_label": "Увімкнути звук",
             "theme_label": "Виберіть тему:",
@@ -96,13 +132,14 @@ def change_language(lang):
             "update_button": "Update data",
             "last_price_label": "Last price: -",
             "moving_average_label": "Moving average: -",
+            "rsi_label": "RSI: -",
+            "macd_label": "MACD: -, Signal: -",
             "decision_label": "Decision: -",
             "sound_label": "Enable sound",
             "theme_label": "Select theme:",
             "language_label": "Select language:"
         }
     }
-    # Оновлення тексту елементів інтерфейсу
     if lang in translations:
         symbol_label.configure(text=translations[lang]["symbol_label"])
         timeframe_label.configure(text=translations[lang]["timeframe_label"])
@@ -110,11 +147,12 @@ def change_language(lang):
         update_button.configure(text=translations[lang]["update_button"])
         last_price_label.configure(text=translations[lang]["last_price_label"])
         moving_average_label.configure(text=translations[lang]["moving_average_label"])
+        rsi_label.configure(text=translations[lang]["rsi_label"])
+        macd_label.configure(text=translations[lang]["macd_label"])
         decision_label.configure(text=translations[lang]["decision_label"])
         sound_label.configure(text=translations[lang]["sound_label"])
         theme_label.configure(text=translations[lang]["theme_label"])
         language_label.configure(text=translations[lang]["language_label"])
-
 
 # Створення головного вікна
 root = ctk.CTk()
@@ -159,34 +197,42 @@ last_price_label.grid(row=4, column=0, columnspan=2, padx=10, pady=10)
 moving_average_label = ctk.CTkLabel(root, text="Середній ковзний: -")
 moving_average_label.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
 
+# Відображення RSI
+rsi_label = ctk.CTkLabel(root, text="RSI: -")
+rsi_label.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
+
+# Відображення MACD
+macd_label = ctk.CTkLabel(root, text="MACD: -, Signal: -")
+macd_label.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
+
 # Відображення рішення
 decision_label = ctk.CTkLabel(root, text="Рішення: -")
-decision_label.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
+decision_label.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
 
 # Налаштування звуку
 sound_enabled = ctk.BooleanVar(value=True)
 sound_label = ctk.CTkLabel(root, text="Увімкнути звук")
-sound_label.grid(row=7, column=0, padx=10, pady=10)
+sound_label.grid(row=9, column=0, padx=10, pady=10)
 sound_checkbox = ctk.CTkCheckBox(root, text="", variable=sound_enabled)
-sound_checkbox.grid(row=7, column=1, padx=10, pady=10)
+sound_checkbox.grid(row=9, column=1, padx=10, pady=10)
 
 # Вибір теми
 theme_label = ctk.CTkLabel(root, text="Виберіть тему:")
-theme_label.grid(row=8, column=0, padx=10, pady=10)
+theme_label.grid(row=10, column=0, padx=10, pady=10)
 
 themes = ["System", "Dark", "Light"]
 theme_combobox = ttk.Combobox(root, values=themes)
-theme_combobox.grid(row=8, column=1, padx=10, pady=10)
+theme_combobox.grid(row=10, column=1, padx=10, pady=10)
 theme_combobox.set("System")
 theme_combobox.bind("<<ComboboxSelected>>", lambda e: change_theme(theme_combobox.get()))
 
 # Вибір мови
 language_label = ctk.CTkLabel(root, text="Виберіть мову:")
-language_label.grid(row=9, column=0, padx=10, pady=10)
+language_label.grid(row=11, column=0, padx=10, pady=10)
 
 languages = ["Українська", "English"]
 language_combobox = ttk.Combobox(root, values=languages)
-language_combobox.grid(row=9, column=1, padx=10, pady=10)
+language_combobox.grid(row=11, column=1, padx=10, pady=10)
 language_combobox.set("Українська")
 language_combobox.bind("<<ComboboxSelected>>", lambda e: change_language(language_combobox.get()))
 
