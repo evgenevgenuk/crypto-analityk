@@ -1,3 +1,5 @@
+![Heder](https://github.com/evgenevgenuk/crypto-analityk/blob/main/2025-03-04-14-19-33.gif)
+
 Crypto Analytics Tool
 Цей проект є інструментом для аналізу криптовалютних ринків з використанням різних технічних індикаторів, таких як MA (Moving Average), RSI (Relative Strength Index) та MACD (Moving Average Convergence Divergence). Він дозволяє отримувати дані з біржі Binance, аналізувати їх та приймати торгові рішення на основі комбінацій індикаторів.
 
